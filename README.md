@@ -1,6 +1,8 @@
 # kitcher
 a simple app to recommend me what to buy at the grocery store based on what i have in my fridge/pantry and recipes that i like.
 
+See [the architecture draft](docs/architecture.md) for the intended workflows, data model, shopping rules, and implementation plan.
+
 ## Local development (Windows / VS Code)
 
 The repository is ready for Python development. App code and runtime dependencies
