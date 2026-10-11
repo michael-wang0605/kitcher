@@ -19,7 +19,7 @@ try {
         Assert-KitcherPort 8001 'development'
         Stop-KitcherProcess 'development'
     }
-    Assert-KitcherPort 8001 'web' 
+    Assert-KitcherPort 8001 'web'
     Assert-KitcherPort 443 'caddy'
     Assert-KitcherPort 20191 'caddy'
     Invoke-KitcherCommand @('check')
