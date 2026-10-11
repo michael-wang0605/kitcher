@@ -1,0 +1,15 @@
+{% extends "pantry/base.html" %}{% block title %}Status · Kitcher{% endblock %}
+{% block content %}<h1>Local status</h1>
+<p>Kitchen access and photo recognition depend on this computer being on.</p>
+<section class="panel"><h2>Photo recognition</h2>
+<p>{% if worker_online %}Worker checked in recently.{% else %}Worker has not checked in recently. Manual pantry and recipe edits remain available.{% endif %}</p>
+{% if worker %}<p>Last check: {{ worker.last_seen }}. {{ worker.detail }}</p>{% endif %}
+{% if cleanup %}<p>Photo cleanup: {{ cleanup.last_seen }}. {{ cleanup.detail }}</p>{% else %}<p>Photo cleanup has not reported yet.</p>{% endif %}</section>
+<section class="panel"><h2>Backups</h2>
+{% if backup.last_success %}<p>Last verified local backup: {{ backup.last_success }}.</p>{% else %}<p>No verified local backup has been recorded.</p>{% endif %}
+{% if backup.mirror_success %}<p>Last verified copy on the separate backup disk: {{ backup.mirror_success }}.</p>{% endif %}
+{% if backup.error %}<p class="error">{{ backup.error }}</p>{% endif %}
+{% if backup.mirror_error %}<p class="error">{{ backup.mirror_error }}</p>{% endif %}
+<p>Database backups preserve accounts and review data. Original photos are excluded.</p></section>
+{% if phone_url %}<section class="panel"><h2>iPhone access</h2><p><a href="{{ phone_url }}">{{ phone_url }}</a></p><p>Use the home network and trust the installed Kitcher root certificate.</p></section>{% endif %}
+{% endblock %}

@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Kitcher private inputs and backups
+fridge/
+receipts/
+backups/
+config/Caddyfile
+config/secret_key

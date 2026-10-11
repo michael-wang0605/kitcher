@@ -1,0 +1,9 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Kitcher{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'pantry/app.css' %}"></head>
+<body><header class="site-header"><a class="brand" href="{% url 'pantry' %}">kitcher<span>Your kitchen, accounted for.</span></a>
+{% if user.is_authenticated %}<nav aria-label="Main"><a href="{% url 'pantry' %}">Pantry</a><a href="{% url 'ingredients' %}">Ingredients</a><a href="{% url 'recipes' %}">Recipes</a><a href="{% url 'shopping' %}">Shopping</a><a href="{% url 'imports' %}">Imports</a><a href="{% url 'history' %}">History</a><a href="{% url 'status' %}">Status</a><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="quiet" type="submit">Log out</button></form></nav>{% endif %}</header>
+<main>{% for message in messages %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
+{% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}{% block content %}{% endblock %}</main>
+<footer>Personal pantry &amp; grocery planning</footer></body></html>

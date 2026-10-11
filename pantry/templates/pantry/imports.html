@@ -1,0 +1,16 @@
+{% extends "pantry/base.html" %}
+{% block title %}Imports · Kitcher{% endblock %}
+{% block content %}
+<p class="eyebrow">Review before recording</p><h1>Import kitchen updates</h1>
+<p>Photos and text produce editable observations. Nothing changes stock until you confirm the resulting balances.</p>
+<div class="notice">Local recognition requires this computer and its worker to be running.
+{% if worker %}Worker last checked {{ worker.last_seen }}{% if not worker_recent %}; it may be stopped{% endif %}.{% else %}No worker check has been recorded.{% endif %}
+You can always enter observations manually.</div>
+{% if cleanup_status %}<p class="muted">{{ cleanup_status.detail }} Last checked {{ cleanup_status.last_seen }}.</p>{% endif %}
+<div class="grid">
+<section class="card"><h2>Write an update</h2><form method="post">{% csrf_token %}{{ text_form.as_p }}<button name="action" value="text">Create text review</button></form></section>
+<section class="card"><h2>Upload a photo</h2><form method="post" enctype="multipart/form-data">{% csrf_token %}{{ photo_form.as_p }}<button name="action" value="photo">Create photo review</button></form>
+<p class="muted">Private source copies expire after 24 hours and are deleted on confirmation or cancellation. If the computer is off, overdue copies are deleted at startup. Your original files are unchanged.</p></section>
+</div>
+<section class="card"><h2>Recent imports</h2>{% for draft in drafts %}<p><a href="{% url 'import_review' draft.pk %}">{{ draft.get_source_type_display }} · {{ draft.created_at }}</a> — {{ draft.status }}{% if draft.duplicate_source %} · repeated source{% endif %}</p>{% empty %}<p>No imports yet.</p>{% endfor %}</section>
+{% endblock %}

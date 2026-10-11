@@ -1,0 +1,6 @@
+{% extends "pantry/base.html" %}
+{% block content %}<div class="page-heading"><div><p class="eyebrow">What you have</p><h1>Your pantry</h1><p class="muted">A useful estimate, confirmed by you.</p></div><a class="button secondary" href="{% url 'ingredients' %}">Add an ingredient</a></div>
+<div class="two-column"><section class="card"><h2>On hand</h2>
+{% if rows %}<div class="inventory-list">{% for row in rows %}<div class="inventory-row"><div><strong>{{ row.ingredient.name }}</strong><small>{% if row.confirmed %}Confirmed {{ row.confirmed|date:"M j, g:i a" }}{% else %}Not checked yet{% endif %}</small></div><span class="{% if not row.known %}unknown{% endif %}">{{ row.quantity }}{% if row.known %} {{ row.ingredient.unit }}{% endif %}</span></div>{% endfor %}</div>
+{% else %}<div class="empty"><h3>A fresh start.</h3><p>Add a few ingredients, then confirm what you have.</p></div>{% endif %}</section>
+<section class="card"><p class="eyebrow">Keep it current</p><h2>Update inventory</h2>{% if rows %}<form action="{% url 'preview' %}" method="post">{% csrf_token %}{{ form.as_p }}<button type="submit">Review change</button></form>{% else %}<p class="muted">Create an ingredient to start tracking its amount.</p>{% endif %}</section></div>{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "pantry/base.html" %}{% load static %}
+{% block title %}Review import · Kitcher{% endblock %}
+{% block content %}
+<p class="eyebrow">{{ draft.get_source_type_display }} · {{ draft.status }}</p><h1>Review observations</h1>
+{% if draft.error %}<div class="error">{{ draft.error }}</div>{% endif %}
+{% if job.error %}<div class="notice">{{ job.error }}</div>{% endif %}
+{% if draft.source_text %}<blockquote>{{ draft.source_text|linebreaksbr }}</blockquote>{% endif %}
+{% if source_available %}<details><summary>View private source photo</summary><img class="source-photo" src="{% url 'import_source' draft.pk %}" alt="Your uploaded source"></details><p class="muted">Source expires {{ job.expires_at }}.</p>{% endif %}
+{% if draft.status == "applied" %}<p>This draft has already been recorded. <a href="{% url 'event' draft.applied_event_id %}">View its inventory update</a>.</p>
+{% elif draft.status == "cancelled" or draft.status == "expired" %}<p><a href="{% url 'imports' %}">Create another import</a> or <a href="{% url 'pantry' %}">update the pantry manually</a>.</p>
+{% else %}
+{% if draft.status == "processing" %}<div class="notice" data-import-progress>Waiting for local recognition. Attempt {{ job.attempts }} of 3. <button type="button" onclick="location.reload()">Refresh status</button> You can enter visible observations below now; saving them stops this job.</div>{% endif %}
+<p>{% if draft.source_type == "fridge" %}Set only clearly visible amounts. Unseen stock stays unchanged.{% elif draft.source_type == "receipt" %}Add the ingredient amount purchased. A price or package count does not establish its weight or volume.{% else %}Check the operation as well as the amount.{% endif %}</p>
+<p><a href="{% url 'ingredients' %}">Add a missing ingredient or package size</a> before completing this review.</p>
+<form method="post" data-import-edit>{% csrf_token %}<input type="hidden" name="revision_token" value="{{ revision_token }}">{{ formset.management_form }}{{ formset.non_form_errors }}
+{% for form in formset %}<section class="card"><h2>Observation {{ forloop.counter }}</h2>
+{% if form.initial.name %}<p>{{ form.initial.name }}{% if form.initial.unresolved %} — <strong>{{ form.initial.unresolved }}</strong>{% endif %}</p>{% endif %}
+{{ form.as_p }}</section>{% endfor %}
+{% if draft.duplicate_source %}<div class="notice">These original photo bytes were already uploaded. This is a separate draft and could count the same purchase twice.</div><label><input type="checkbox" name="duplicate_ack" {% if draft.duplicate_ack %}checked{% endif %}> I checked the earlier import and this represents a new stock change.</label>{% endif %}
+<div class="actions"><button name="action" value="preview">Save and preview balances</button><button class="quiet" name="action" value="save">Save review</button></div></form>
+<form method="post" action="{% url 'import_cancel' draft.pk %}">{% csrf_token %}<input type="hidden" name="revision_token" value="{{ revision_token }}"><button class="quiet">Cancel import and delete source</button></form>
+{% if can_retry %}<form method="post" action="{% url 'import_retry' draft.pk %}">{% csrf_token %}<input type="hidden" name="revision_token" value="{{ revision_token }}"><p>Retry replaces the saved observations with a new recognition result.</p><button class="quiet">Retry local recognition</button></form>{% endif %}
+<script src="{% static 'pantry/import.js' %}" defer></script>
+{% endif %}
+<p><a href="{% url 'imports' %}">All imports</a></p>
+{% endblock %}

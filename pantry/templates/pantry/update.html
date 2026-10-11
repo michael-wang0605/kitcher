@@ -1,0 +1,1 @@
+{% extends "pantry/base.html" %}{% block content %}<section class="card narrow"><h1>Review your update</h1><form action="{% url 'preview' %}" method="post">{% csrf_token %}{{ form.as_p }}<button type="submit">Review change</button><a href="{% url 'pantry' %}">Cancel</a></form></section>{% endblock %}

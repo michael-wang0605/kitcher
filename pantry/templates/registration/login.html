@@ -1,0 +1,4 @@
+{% extends "pantry/base.html" %}
+{% block title %}Sign in · Kitcher{% endblock %}
+{% block content %}<section class="card narrow"><p class="eyebrow">Welcome home</p><h1>Sign in to your kitchen.</h1>
+<form method="post">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button type="submit">Sign in</button></form></section>{% endblock %}
