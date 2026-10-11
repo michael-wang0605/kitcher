@@ -1,0 +1,21 @@
+{
+    admin 127.0.0.1:20191
+    auto_https disable_redirects
+    skip_install_trust
+    storage file_system {
+        root "{$KITCHER_CADDY_DATA}"
+    }
+}
+https://{$KITCHER_LAN_IP} {
+    bind {$KITCHER_LAN_IP}
+    tls internal
+    handle_path /static/* {
+        root * "{$KITCHER_STATIC_ROOT}"
+        file_server
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8001 {
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+}

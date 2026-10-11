@@ -21,7 +21,7 @@
       "label": "Python: Test",
       "type": "process",
       "command": "${workspaceFolder}/.venv/Scripts/python.exe",
-      "args": ["-m", "pytest"],
+      "args": ["manage.py", "test", "--noinput"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "test",
       "problemMatcher": []
