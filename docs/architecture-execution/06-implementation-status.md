@@ -2,6 +2,8 @@
 
 ## October 11 shipping snapshot
 
+**Submission complete:** Terra confirmed the current Windows version shipped on October 11 and displayed it as in voting. This development cycle is closed at the user's request, with review approval pending. See the [shipping closeout](../shipping-closeout.md). The original M0/M4/M5 acceptance gaps below remain deferred future work.
+
 The user requested submission of the current local Windows version and closure of this development cycle. The shipped scope is the implemented app with experimental recognition; the full architecture acceptance gates below remain future work and are not claimed complete.
 
 For this snapshot, all 125 tests passed in 85.020 seconds; Ruff, migration consistency, and dependency checks passed. Chrome successfully rendered a separate demonstration database. Pantry quantities, recipe/shopping output, an inventory preview from two to six eggs, and its confirmed history event were inspected. The [screenshot walkthrough](../demo.md) records that limited desktop check. It does not replace the complete desktop acceptance sequence or the actual iPhone walkthrough.

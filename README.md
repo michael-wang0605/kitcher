@@ -4,6 +4,8 @@ A local pantry and grocery-planning app for the recipes you like.
 
 [Screenshot demo](docs/demo.md) shows the running application with sample data. This version runs locally on Windows; local photo recognition is experimental and the full phone/recognition acceptance checks remain open.
 
+The current version was [submitted to Terra on October 11, 2026](docs/shipping-closeout.md) and is awaiting review.
+
 [Architecture](docs/architecture.md) | [Execution plan](docs/architecture-execution/README.md) | [Implementation status](docs/architecture-execution/06-implementation-status.md)
 
 ## Run locally on Windows
