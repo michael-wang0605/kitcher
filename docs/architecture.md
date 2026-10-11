@@ -1,222 +1,217 @@
 # Kitcher architecture
 
-Design draft based on product decisions made on October 7, 2026.
-This document describes the planned app; it does not imply that the app has been implemented.
+Status: finalized for implementation on October 7, 2026; deployment decisions and execution evidence updated October 9, 2026.
 
-## Product decisions
+This document is the authoritative first-version architecture. The [execution plan](architecture-execution/03-execution-plan.md), [acceptance plan](architecture-execution/04-acceptance-plan.md), and [operations runbook](architecture-execution/05-operations.md) implement these decisions. The design is finalized; implementation is underway. See [implementation status](architecture-execution/06-implementation-status.md) for current evidence.
 
-Kitcher is a personal pantry and grocery-planning app. Its first version should:
+## Product scope
 
-- Track approximate but usable quantities, such as six eggs or half a known bag of rice.
-- Maintain an editable recipe book with explicit ingredients, quantities, default servings, and optional instructions.
-- Suggest a few favorite recipes based on current inventory, with the ability to swap suggestions.
-- Recommend purchases so any one selected recipe can be cooked at its chosen serving count.
-- Accept inventory updates through text, fridge photos, receipt photos, and recording cooked recipes.
-- Confirm interpreted inventory changes before applying them.
-- Keep hosting costs as close to zero as practical.
-- Require zero paid API or inference charges for photo recognition.
-- Accept that photo recognition is available only while the user's computer is running.
+Kitcher is a personal pantry and grocery-planning application. The first version tracks approximate quantities, maintains an editable recipe book, suggests three favorites by default, supports recipe swaps and serving changes, and recommends purchases sufficient to cook any one selected recipe.
 
-Weekly meal planning and recommendations outside the user's recipe book are future work.
+Inventory updates support explicit manual forms, text, fridge photos, receipt photos, and recorded cooking. Every update shows the interpreted operation and resulting balance before confirmation. The selected recipes are alternatives; cooking one recomputes readiness for the same saved shortlist.
 
-The initial shortlist size is three. This is a starting default, not a hard limit.
+Run the application and recognition on the existing Windows computer. Phone access uses the home network while the computer is running. Hosting and recognition require no paid service, and there is no paid inference fallback. The computer's electricity, storage, and hardware remain local operating resources.
 
-## Proposed technical architecture
+Public signup, household sharing, weekly meal planning, external recipe recommendations, substitutions, optional recipe ingredients, expiration tracking, multiple storage locations, ingredient-specific density conversions, and cloud hosting are outside the first version.
 
-Use a single Python/Django app with responsive, server-rendered pages and small amounts of JavaScript for uploads and interactive edits. Keep inventory arithmetic and recipe selection in Python service modules, separate from page rendering and input interpretation.
+## Final decisions
 
-Django supplies database models, migrations, session authentication, and an admin interface for maintaining the initial recipe book. The user-facing pages should make everyday pantry updates, cooking, and shopping convenient on both a phone and a computer.
+| Area | Decision |
+| --- | --- |
+| Application | Python 3.12; Django 5.2 LTS; one domain app; templates and small JavaScript enhancements. |
+| Dependencies | Pin exact supported patch versions and transitive dependencies in M0. The review baseline is Django 5.2.18; apply newer security patches before pinning if available. |
+| Database | Local SQLite; integer thousandths; IMMEDIATE transactions; 5-second busy timeout; no whole-request transactions. |
+| Account | One pre-created account; session authentication; all domain access scoped to its owner. |
+| Inventory | One atomic preview/confirmation service, immutable events, owner pantry revision, draft revision, and UUID idempotency. |
+| Shopping | Three favorites by default; aggregate within each recipe; take maximum requirements across selected alternatives. |
+| Local web server | Waitress on 127.0.0.1:8001; Caddy provides HTTPS and static serving for phone access. |
+| Phone TLS | Caddy internal CA with its public root certificate trusted on the phone; fixed private address assigned by a router DHCP reservation. |
+| Recognition | Ollama local-only, baseline gemma3:4b, plus Tesseract English OCR; one database-backed local importer process. |
+| Uploads | One JPEG/PNG per job; 10 MiB encoded limit; 25,000,000 decoded pixels; private spool. |
+| Processing | 120-second total execution timeout; 300-second claim lease; 3 total transient-failure attempts with 10/30-second delays. |
+| Source lifecycle | Source becomes unusable after 24 hours; immediate deletion on apply/cancel; cleanup every 15 minutes while running and on startup. |
+| Recovery | SQLite backup API; seven daily backups retained; pre-migration backups retained separately; versioned JSON domain export. |
+| Application tests | Django's built-in test runner, including unittest-compatible pure calculation tests. |
+| Release | M0-M5 acceptance gates, representative recognition benchmark, actual-phone walkthrough, and demonstrated restore. |
+
+The deployed address is 192.168.1.100, the phone is an iPhone, and the verified backup mirror is C:\Users\<Windows-user>\KitcherBackups on a separate physical disk. DHCP reservation completion and actual-phone trust remain execution checks; see the [remaining execution checklist](architecture-execution/10-release-checklist.md). Exact dependency patches, generated secrets, and model digest are deployment artifacts recorded during M0/M5. They are not unresolved architecture choices. Model quality and speed are implementation checks, not claims of measured performance.
+
+[Django supported releases](https://www.djangoproject.com/download/), [Waitress Windows support](https://docs.pylonsproject.org/projects/waitress/en/latest/), and [Caddy internal TLS](https://caddyserver.com/docs/caddyfile/directives/tls).
+
+## Runtime and module boundaries
+
+Use Python 3.12, a patched Django 5.2 LTS release, server-rendered templates, and SQLite locally. PostgreSQL is the future cloud database. Use plain forms and small JavaScript enhancements for upload progress, status polling, and review interactions.
+
+Keep one Django domain app with service modules. The local importer is a separate process running the same codebase and database. Introduce neither Redis nor a separate public API for the initial version.
+
+```text
+manage.py
+kitcher/
+  settings.py                # Environment-driven settings; local/database profiles
+  urls.py
+  wsgi.py
+pantry/
+  models.py
+  forms.py
+  views.py                   # Authentication, owner scoping, forms, response rendering
+  services/
+    quantities.py            # Units, Decimal calculations, fixed-point boundaries
+    inventory.py             # Preview and sole balance mutation entry point
+    recipes.py               # Recipe validation, revision changes, snapshots
+    suggestions.py           # Ranking and explicit shortlist updates
+    shopping.py              # Scaled per-recipe requirements and maximum targets
+    imports.py               # Draft editing, private uploads, confirmation adapter
+    import_worker.py         # Claims, publication, retries, expiry, cleanup
+    candidates.py            # Explicit text patterns and candidate validation
+  interpretation/
+    runner.py                # Bounded child: English OCR and loopback vision
+  management/commands/
+    process_imports.py
+    cleanup_imports.py
+    backup_pantry.py
+    export_pantry.py
+    import_pantry.py
+  migrations/
+  templates/pantry/
+  static/pantry/
+tests/
+var/                         # Ignored local database and private import spool
+```
+
+The files above are implementation targets. Core inventory, recipes, shopping, cooking, and the import pipeline are implemented. Recognition acceptance and actual desktop/iPhone walkthroughs remain open. Recovery, Windows startup/scheduling, and local Caddy HTTPS are implemented; evidence is in the execution folder. Views, admin forms, workers, and management commands call the same domain services rather than updating balances independently. Validated recovery into an empty account is the explicit exception: it inserts historical records and balances atomically, preserving archival snapshots and mapping export references. It refuses existing domain data; ordinary new changes continue through signed preview/confirmation. Recipe admin edits and ingredient-line edits also advance the recipe revision through its service.
 
 ```mermaid
 flowchart TD
-    Browser[Phone or desktop browser] --> App[Django app]
-    App --> Pantry[Inventory service]
-    App --> Recipes[Recipe service]
-    App --> Shopping[Suggestion and shopping service]
-    App --> Import[Text and photo interpretation]
-    Import --> Vision[Local vision model through Ollama]
-    Import --> OCR[Local receipt OCR through Tesseract]
-    Import --> Review[Proposed changes for review]
-    Review --> Pantry
-    Pantry --> DB[(Database)]
-    Recipes --> DB
-    Shopping --> DB
+    B[Authenticated browser] --> V[Django views and forms]
+    V --> R[Recipe and shopping services]
+    V --> P[Preview and confirm service]
+    V --> U[Upload and draft editing]
+    U --> F[Private temporary spool]
+    U --> J[Database import jobs]
+    J --> W[One local importer process]
+    F --> W
+    W --> O[Loopback Ollama and local Tesseract]
+    W --> D[Validated review drafts]
+    D --> V
+    P --> E[Balances and inventory events in one transaction]
+    R --> DB[(SQLite locally)]
+    E --> DB
+    J --> DB
+    D --> DB
 ```
 
-Run locally with SQLite while developing. Use PostgreSQL for a cloud deployment. Keep the core models and queries compatible with both databases. Moving to cloud storage will require migrating the existing local data; changing the connection settings alone does not copy it.
+## Records and constraints
 
-Use one pre-created account initially. Associate recipes, pantry records, imports, and selections with that account. Public signup and household sharing are outside the initial scope.
+Use Django's built-in user and session authentication with one pre-created account and public signup disabled. Every domain record is owned directly or through an owner-scoped parent. Reject cross-owner references on all service calls, including admin and worker calls.
 
-## Data model
-
-| Record | Main fields and purpose |
+| Record | Contract |
 | --- | --- |
-| Ingredient | Canonical name, aliases, measurement dimension, and canonical unit. Matches names such as "eggs" and "large eggs" when the user confirms they are equivalent. |
-| Package size | Ingredient, package label, amount, and unit. Converts "half a bag" into a usable amount when that bag's size is known. |
-| Pantry item | Owner, ingredient, estimated quantity, canonical unit, version number, and last-confirmed time. One current balance per ingredient is sufficient initially. |
-| Recipe | Owner, title, favorite flag, default servings, instructions, and revision number. |
-| Recipe ingredient | Recipe, ingredient, amount, and unit for the recipe's default servings. |
-| Recipe selection | Owner and selected recipes, with desired servings and ordering. Holds the current shortlist. |
-| Inventory event and lines | Owner, source, timestamp, request identifier, affected ingredients, and quantity changes. Records purchases, cooking, corrections, and reversals. |
-| Import draft | Owner, input type, proposed changes, unresolved fields, review status, and a source fingerprint when applicable. Keeps interpretation separate from confirmed inventory. |
+| Ingredient | Owner, name, normalized name, dimension, canonical unit; unique owner/name key. Treat canonical dimension as immutable after use. |
+| IngredientAlias | Owner, normalized alias, ingredient; unique owner/alias. Trim and Unicode-normalize/casefold in Python consistently. |
+| PackageSize | Owner, ingredient, label, positive amount in canonical thousandths. A package is a conversion aid; it is not an inventory location. |
+| PantryState | Unique owner, revision integer. Every confirmed inventory mutation advances it once. |
+| PantryItem | Unique owner/ingredient, nullable quantity in thousandths, item version, last-confirmed time. Known quantities must be nonnegative. |
+| Recipe | Owner, title, favorite, positive default servings, instructions, revision; incomplete recipes may be saved but cannot be suggested or cooked. |
+| RecipeIngredient | Recipe, ingredient, positive canonical quantity when resolved, nullable amount with original input/reason while unresolved, and display order. Repeated ingredient lines are allowed and aggregated during calculations. |
+| RecipeSelection | One per owner, revision. Membership and desired servings are changed by explicit user actions. |
+| SelectionEntry | Selection, recipe, positive desired servings, position; unique recipe and position within selection. |
+| InventoryEvent | Owner, request UUID, canonical command hash, source, time, pantry revisions, optional recipe snapshot and reversal link. Unique owner/request UUID. At most one reversal per original event. |
+| InventoryEventLine | Event, ingredient, operation/input amount, optional reconciliation basis, before/after nullable quantities, versions, and effective delta when both balances are known. One consolidated line per ingredient. |
+| ImportDraft | Owner, type, schema version, revision, editable proposed operations, unresolved fields, status, optional job/fingerprint, applied event. |
+| ImportJob | Owner, draft, state, private source reference, fingerprint, attempt count/token, lease expiry, error category, model/prompt version, timestamps. |
 
-Use decimal values for quantities. Store compatible quantities in canonical units: grams for mass, milliliters for volume, and counts for discrete items.
+Every recipe ingredient is required. A known package size converts phrases such as half a bag: half of a 1000 g bag is 500 g. Without a matching package amount, the quantity remains unresolved.
 
-Convert within a measurement dimension, such as kilograms to grams. A mass-to-volume or count-to-mass conversion requires an ingredient-specific conversion; do not assume that one cup of every ingredient weighs the same amount.
+Use relational fields for stable entities and constraints. JSON is suitable for immutable recipe snapshots, interpretation candidates, and unresolved-field explanations, but does not replace service validation.
 
-"Half a bag" requires a known package size. Otherwise keep the quantity unresolved and ask for it during review. Unknown quantities must not silently become zero or arbitrary numerical estimates.
+Protect referenced ingredients from deletion; archive used recipes instead of removing their history references. Snapshots keep titles, units, conversions, servings, and actual consumption readable after catalog or recipe edits.
 
-Every recipe ingredient is required initially. Optional ingredients, substitutions, expiration dates, and separate storage locations can be added later.
+## Quantity semantics
 
-## Recipe suggestions
+- Store quantities as nullable `BigIntegerField` values: 1000 stored units = 1 gram, milliliter, or item. Keep the dimension on the ingredient.
+- Use `Decimal` created from strings for input, conversion, and scaling. Never use binary floats for domain arithmetic.
+- Quantities are limited to 1,000,000,000,000 canonical units (1,000,000,000,000,000 stored thousandths). Serving counts range from 0.001 to 1000 in increments of 0.001. Reject computed requirements exceeding the quantity bound. Use Decimal precision 28.
+- Input and actual-usage amounts round to 0.001 canonical units with `ROUND_HALF_UP`; show the normalized value before confirmation. Reject positive inputs that become zero and values outside documented field bounds.
+- Scaled recipe requirements round upward to the same precision once, after aggregating an ingredient's lines within the recipe. This avoids advising slightly less than the modeled requirement.
+- Preserve fractional counts for actual usage. For grocery advice, show the exact shortfall and round count purchases upward to whole items; do not round mass or volume into unknown package sizes.
+- Null quantity means unverified, zero means confirmed absent, and a missing pantry row means unverified. Creating an ingredient does not assert that its balance is zero.
+- Add/subtract requires a known starting balance. For unknown stock, review must first supply a current amount, or explicitly confirm that the previous balance was zero. Log this reconciliation with the operation.
+- Units convert only within a dimension initially. A recipe requiring an incompatible unit stays incomplete until its quantity is corrected into the ingredient's canonical dimension. Ingredient-specific density conversions are an optional later extension.
+- Unknown stock shows a verification action, not a definite buy amount or readiness label.
 
-Start with a transparent, deterministic ranking of favorite recipes at their default servings:
+Integer storage avoids SQLite's documented decimal limitations. [Django decimal handling](https://docs.djangoproject.com/en/5.2/ref/databases/#decimal-handling)
 
-1. Rank recipes with all required ingredients available first.
-2. Among the rest, prefer fewer missing ingredients.
-3. Break ties using average ingredient coverage, then a stable recipe identifier.
+## Recipe and shopping contract
 
-For each ingredient with a known pantry quantity, coverage is:
+For each recipe, aggregate ingredient lines, multiply by desired/default servings, and normalize to canonical precision. For each selected ingredient, target the maximum requirement across these recipe totals, then subtract known stock and clamp at zero.
 
-```text
-coverage = min(available / required, 1)
-```
+Ranking uses the draft's deterministic order: ready first, fewer shortages or unverified ingredients next, higher mean confirmed coverage next, then stable recipe ID. Unknown stock has zero confirmed coverage for ranking only. Recipes without a complete set of valid requirements are excluded.
 
-Average the coverage fractions across the recipe's required ingredients. For ranking only, an unknown pantry quantity contributes no confirmed coverage and requires verification. Label it as unknown in the interface rather than displaying it as absent.
+Shopping checkboxes are interface-only indicators and reset when the shopping result is refreshed. They do not reserve stock or persist purchases.
 
-Show the reason for each suggestion, such as "ready to cook" or "missing eggs and yogurt." This ranking does not claim to minimize grocery spending; prices and store package sizes are not known initially.
+An empty shortlist has an empty shopping result. Fewer than three favorites yields fewer suggestions. Swaps exclude already selected recipes. Positive fractional serving counts are allowed, with a documented input precision.
 
-Suggest three favorites and let the user replace any suggestion. Save the selected shortlist until the user refreshes it or swaps recipes. Inventory changes update readiness and shopping quantities without silently replacing the chosen recipes.
+Recipe edits preserve shortlist membership, but recompute requirements from the new revision and mark the change in the interface. A cooking preview captures the recipe revision and pantry revision; confirmation rejects either being stale.
 
-## Shopping calculation
+## Atomic inventory confirmation
 
-The selected recipes are alternatives. Shared ingredients must cover the largest individual requirement, rather than the sum across recipes.
+The UI sends operations, expected pantry revision, draft ID/revision when applicable, recipe ID/revision when cooking, and a stable request UUID. The canonical command hash covers the normalized operations and these expected revisions, scoped to the owner by the event uniqueness constraint. Preview tokens are stored server-side or signed; a hidden browser field is not trusted as the source of the expected calculation.
 
-First scale each recipe to its selected servings:
+1. Validate ownership, operation types, finite quantities, units, recipe snapshot, and resolved fields. Group operations by ingredient and show their resulting balances.
+2. Begin a short explicit database transaction. For SQLite, use `IMMEDIATE` transaction mode with a 5-second busy timeout; leave `ATOMIC_REQUESTS` disabled.
+3. Check owner/request UUID first. If it already succeeded with the identical command hash, return that event. Reject UUID reuse with a different command.
+4. Claim the current pantry revision by conditional update: update only where owner and revision match the preview; increment exactly once. Zero affected rows means stale preview.
+5. For an import, conditionally claim the reviewed draft revision/status as well. Validate the current recipe revision inside the transaction if cooking. On PostgreSQL, lock the recipe row; recipe edits use the same row/transaction boundary so an edit cannot pass between this check and commit.
+6. Read affected balances, confirm the expected item versions, calculate final states, and reject negative or unresolved results. Apply all balances and versions.
+7. Insert the event and immutable lines, link the draft to the event, and complete the draft status. Commit everything together.
+8. On any mismatch or failure, roll back everything. Return a fresh preview requiring another confirmation. A revised command receives a new request UUID.
 
-```text
-scaled requirement = recipe amount * selected servings / default servings
-```
+On simultaneous identical requests, a uniqueness collision or lock timeout must resolve by looking up the committed event in a new transaction, or return a safe retry response using the same UUID. Never continue inside a transaction broken by an integrity error. A lost HTTP response does not mean the event failed.
 
-Then, for each ingredient:
+The per-owner revision intentionally invalidates previews after any inventory update. This is slightly conservative and handles missing rows without a complex per-ingredient locking scheme. All writers follow the same contract. On PostgreSQL, conditional updates still apply; row locks may assist but do not replace revision checks. [Django SQLite transaction and locking behavior](https://docs.djangoproject.com/en/5.2/ref/databases/#transactions-behavior)
 
-```text
-target = maximum scaled requirement across selected recipes
-buy = max(target - known pantry quantity, 0)
-```
+## Corrections and undo
 
-For example:
+Events are immutable. A new reversal event references the original; a second reversal of that original is blocked.
 
-| Ingredient | Recipe A needs | Recipe B needs | Pantry has | Target | Buy |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Eggs | 2 | 3 | 1 | 3 | 2 |
-| Rice | 200 g | 300 g | 100 g | 300 g | 200 g |
+When both old and new quantities were known, preview the inverse effective delta against today's balance. For example, purchase +6, then use 2: reversing the purchase subtracts 6 from the current balance, subject to nonnegative validation. An absolute correction from 4 to 6 also has an effective delta of +2; show that context before reversing it.
 
-After shopping, the user can choose either recipe. This does not promise enough ingredients to cook both consecutively. After cooking, recompute readiness and shortages for the same shortlist.
+If the original changed knowledge state, or its inverse cannot be applied safely, require explicit reconciliation. Do not fabricate a delta for unknown stock or silently restore an old balance. If the user chooses a different current balance, record a linked correction rather than calling it an exact reversal.
 
-For unknown inventory amounts, show "check how much you have" before giving a definitive purchase quantity. Keep purchase amounts as ingredient shortfalls initially; package rounding can be added when package information is available.
+## Import lifecycle
 
-Checking an item off a shopping list does not itself increase inventory. A confirmed purchase, receipt import, or manual update does.
+Job states: `queued -> processing -> succeeded | failed`, with terminal `cancelled` and `expired` states. Retryable errors return to queued only while the source is usable and attempts remain. An expired lease permits another attempt with a new token. Use a 300-second lease, a 120-second total processing timeout, and three total attempts with 10/30-second retry delays. Inference/OCR must be stopped or abandoned at the timeout; late results are rejected.
 
-## Inventory update flows
+Draft states: `processing -> needs_review -> applied`, with terminal `cancelled` and `expired` states. A failed job moves its draft to needs_review with an unresolved processing error; the user may enter candidates manually or explicitly retry. Retrying changes it to processing and increments its revision. A draft is confirmable only in needs_review with resolved, nonempty operations. Source expiry marks unfinished processing as expired, but a successfully interpreted needs_review draft stays editable after its source is deleted.
 
-### Fridge photos: reconcile a partial snapshot
+Uploads are authenticated and limited to one image per job, 10 MiB encoded bytes, and 25,000,000 decoded pixels. Support JPEG and PNG; detect unsupported phone formats and explain how to use a compatible image. Validate by decoding, normalize image orientation, generate a private random filename, and keep it outside publicly served static/media directories.
 
-Interpret visible ingredients and quantities, then propose current amounts for review. A photo is a partial observation, so items not visible in it remain unchanged. Identify uncertain amounts and ask the user to fill them in.
+Persist the upload and job before returning its status URL. Filesystem and database writes are not one transaction: remove files on job-creation failure and periodically clean unreferenced files.
 
-Setting an observed amount is different from adding a purchase. Confirming a photo showing six eggs sets the observed balance to six; it does not add another six to an existing balance.
+The worker claims one job in a brief transaction, releases the transaction, then runs OCR/inference with timeouts. Commit a result only if its attempt token and lease still match. An OS-held lock permits only one importer process for the data directory. User edits increment draft revision; a manual edit during processing cancels that attempt. A worker result may never overwrite an edited, cancelled, expired, or applied draft.
 
-### Receipts: add purchases
+Use JSON-schema structured output where supported, then validate candidate fields in Python. Treat all recognized content as proposed ingredient data. Unreadable or ambiguous values remain unresolved. [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs)
 
-Extract line items, match them to ingredients, and resolve package sizes or missing quantities during review. Receipt descriptions and prices alone may not establish ingredient amounts.
+Fridge candidates propose SET operations only for visible items. Every recognized quantity needs explicit user review. Quantities must come from visible food counts or readable labels on apparently unopened packages; a label on an opened container does not establish its remaining amount; do not invent container weights or treat hidden ingredients as absent. Receipt candidates propose ADD operations after package amounts are resolved. Text supports explicit bought/used/have-left patterns first; ambiguous prose requires review.
 
-Save a source fingerprint to flag possible duplicate imports. Applying the same confirmed draft twice must not add the same purchases twice.
+Compute a SHA-256 fingerprint of the original bytes to warn about possible duplicate uploads for the same owner. A fingerprint is not the idempotency key: legitimate similar purchases may be allowed after an explicit duplicate warning, while one draft can produce only one applied event.
 
-### Text: distinguish the intended operation
+Source images expire 24 hours after upload, including queued jobs; show that time in the UI and deny processing/access after expiry. Attempt deletion immediately after apply/cancel. Access is denied even if a Windows file lock delays physical deletion; cleanup retries and records that failure. Run cleanup every 15 minutes while the app runs and before worker startup. Physical deletion while the computer is off is impossible; remove overdue files on the next startup. Structured review data survives deletion, but reprocessing requires re-upload. Expire queued/processing work whose source has expired; a completed review draft remains reviewable.
 
-Support additions, consumption, and current-balance corrections, for example:
+Configure Kitcher's dedicated Ollama runtime on 127.0.0.1:11435 with local-only mode and a fixed model. Port 11434 is occupied by an existing WSL model service on this machine; the dedicated port avoids changing that service. Restart it after changing `OLLAMA_NO_CLOUD=1`. There is no hosted inference fallback. [Ollama FAQ](https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features)
 
-- "Bought six eggs": add six eggs.
-- "Used two eggs": subtract two eggs.
-- "I have six eggs left": set the current balance to six eggs.
+## Recognition acceptance and release
 
-Show the interpreted operation and resulting balance before confirmation.
+Use gemma3:4b Q4_K_M as the implementation baseline, pinned to an explicit local backend manifest and verified against the actually loaded digest, with Ollama restricted to the downloaded local model at 127.0.0.1:11435 and cloud features disabled. Run Tesseract with English OCR, then catalog/package parsing; use local vision interpretation only to produce candidates and unresolved fields.
 
-### Cooking: subtract actual usage
+M0 records results from ten fridge and ten receipt photos. Release requires valid or explicitly unresolved candidate output for every sample, no automatic inventory writes, and at least 18 of 20 samples reaching review within 60 seconds. Median human review/correction/confirmation time must be no greater than median manual entry/confirmation time for the same visible observations across the corpus. If the baseline fails, tune local preprocessing/prompting or replace the local model using the same corpus and record the evidence; photo acceptance remains incomplete until the gate passes. Never remove photo input or add a paid fallback to bypass the gate.
 
-Open a recipe, choose servings, and preview the resulting ingredient deductions. Let the user adjust actual quantities before confirming.
+The shortlist default is three. Usability changes after release are ordinary future design changes.
 
-Record the recipe revision, serving count, and actual ingredient deductions with the cooking event. Later recipe edits must not alter historical consumption.
+## Delivery and future extension
 
-If a deduction exceeds tracked stock, ask the user to reconcile the discrepancy rather than silently creating negative inventory.
+Implement M0 foundations/recognition trial, M1 atomic inventory/history, M2 recipes/shopping, M3 cooking/corrections, M4 reviewed text/photo imports, then M5 phone access/recovery. Complete each milestone's acceptance criteria before marking it done. The [execution plan](architecture-execution/03-execution-plan.md) defines the work packages.
 
-## Consistency and corrections
+Remote access is a later extension: PostgreSQL, private expiring object storage, and authenticated outbound worker jobs. Cloud localhost never refers to the user's computer. Select vendors and check their prices/limits when that extension is requested.
 
-Apply each confirmed update and its inventory-event lines in one database transaction. Use a unique request identifier so retries cannot duplicate a purchase or cooking event.
-
-Check the inventory version when confirming a draft. If inventory changed after the preview, recalculate the proposed balances and show the updated result before applying it.
-
-Undo should create a reversal event, preserving the history. If later updates affect the same ingredient, preview the reversal against the current balance and resolve any discrepancy instead of blindly restoring an old balance.
-
-Photo and text interpretation never directly writes pantry balances. Its output must pass the same ingredient, unit, quantity, and confirmation checks as manual input.
-
-## Hosting and processing costs
-
-The app can be developed and used on one computer with no hosting charge. Phone access on the home network is possible while that computer is running, but access away from home needs a deployment or another remote-access arrangement.
-
-A proposed cloud starting point is a Render Free web service with a Neon Free PostgreSQL database, subject to their usage limits. Render's free service sleeps after 15 idle minutes and may take about a minute to wake. Its local filesystem is temporary, so neither SQLite nor uploaded photos should be persisted there. Render's own free PostgreSQL offering expires after 30 days, so use an external database for this plan.
-
-Keep photos temporary by default: process them for review and retain the confirmed structured data. If processing becomes asynchronous or drafts need to survive restarts, use persistent object storage with a retention policy. Do not put image binaries in the pantry database.
-
-Photo recognition must have no paid API or inference charges. The proposed approach uses the user's existing computer for processing, with no paid-provider fallback. Free hosted-model quotas are not a dependency of the core workflow. This requirement concerns service charges; the local application uses the computer's existing hardware and resources.
-
-### Local photo interpretation
-
-Use Ollama to run a locally downloaded vision model. Begin by evaluating `gemma3:4b`, an image-capable model whose Ollama download is approximately 3.3 GB. This is an initial candidate, not a claim that its pantry recognition has been validated. Pin the chosen model version/digest after evaluating representative fridge and receipt photos.
-
-The user's computer was inspected on October 7, 2026: approximately 32 GB system RAM, an AMD Ryzen 9 3950X processor, and an NVIDIA RTX 2070 SUPER with 8 GB GPU memory. These specifications make a small local-model trial reasonable; actual speed, memory usage, and recognition quality still need measurement. Ollama and Tesseract were not found on the terminal PATH during this check; no software or models were installed as part of this architecture update.
-
-For fridge images, request visible ingredient candidates, visible counts or label quantities, and explicit unresolved quantities. Do not invent weights for containers or infer that hidden items are absent. Validate the structured result and resolve ambiguous ingredient matches in the review screen.
-
-For receipts, use Tesseract for local text recognition, then parse line items using store abbreviations, the ingredient/package catalog, and the local model when helpful. Tesseract recognizes text; it does not itself establish ingredient identity, package sizes, or purchase quantities. Show unresolved abbreviations and amounts during review.
-
-Configure Ollama in local-only mode with `OLLAMA_NO_CLOUD=1`. Keep its API bound to loopback and have the Django backend call it; browsers should submit photos to the application rather than access the model server directly. Restrict the app to its configured local model and endpoint. If local processing is unavailable, provide a clear pending/failed state and manual entry without contacting a paid service.
-
-### Device access and deployment
-
-The initial deployment plan runs both Django and recognition on the computer, using local SQLite storage. A phone can upload photos through Kitcher's responsive interface on the same home network while the computer is running. Keep account authentication in place for network access. The local model service remains private to the computer. Back up the database and provide a structured data export so the pantry and recipe book can be recovered or moved later.
-
-If Django is later deployed to a free cloud host, its `localhost` address does not reach the user's computer. Keep recognition as a separate local worker that fetches authenticated jobs over outbound connections. This requires persistent job records and temporary image storage. The worker processes jobs only while the computer is running; otherwise photo imports remain queued and manual inventory editing stays available. Do not assume that free web hosting also provides the resources needed for the vision model.
-
-The user confirmed that recognition does not need to work while the computer is off. Computer-dependent processing is therefore an accepted first-version constraint. Remote hosting remains an optional future extension rather than a prerequisite for the first version.
-
-## Implementation sequence
-
-1. Create the Django project, account, models, and migrations. Provide recipe editing and pantry quantity editing.
-2. Implement recipe ranking, saved shortlist swaps, serving adjustments, and the shopping calculation.
-3. Add cooking deductions, update history, corrections, and undo.
-4. Benchmark a local vision model and receipt OCR, then add text, receipt, and fridge-photo import drafts, review, and duplicate protection. Include local-only model configuration and graceful manual entry when processing is unavailable.
-5. Provide local startup instructions, authenticated phone access on the home network, and a database export/backup procedure. If remote hosting is wanted later, migrate data and add the local processing worker.
-
-These are implementation milestones. Photo input remains part of the intended first-version workflow, even though the deterministic foundation is built first.
-
-Validate the core behavior with focused tests: shared ingredients use a maximum, serving changes scale requirements, incompatible units require resolution, photos do not remove unseen items, repeated confirmations do not double-count, and recipe edits do not rewrite cooking history.
-
-## Decisions still open
-
-- The local vision model to retain after measuring speed and recognition quality.
-- Whether the three-recipe default feels right after trying the app.
-
-The first version starts locally. Photo-processing service charges are fixed at $0, and processing only while the computer is running is accepted.
-
-## Sources
-
-- [Django overview](https://docs.djangoproject.com/en/6.1/intro/overview/)
-- [Render free-service limits](https://render.com/docs/free)
-- [Neon free-plan details](https://neon.com/blog/neon-free-plan-1-gb-per-project)
-- [Ollama vision API](https://docs.ollama.com/capabilities/vision)
-- [Ollama local-only mode and network binding](https://docs.ollama.com/faq)
-- [Gemma 3 4B model details](https://ollama.com/library/gemma3:4b)
-- [Tesseract OCR documentation](https://tesseract-ocr.github.io/tessdoc/)
-
-Hosting information was checked on October 7, 2026. Confirm the limits again when deploying.
+The earlier hardware observation was approximately 32 GB RAM, Ryzen 9 3950X, and RTX 2070 SUPER with 8 GB GPU memory; M0 verifies the current machine and measures behavior. No hardware, model performance, installation, or application checks are claimed complete by this architecture finalization.
